@@ -1,0 +1,11 @@
+APIs/Platforms: Lotion.js, node.js
+Lotioning Network: Payment channels with transaction records using Lotion.js
+https://github.com/jtremback/lotioning
+
+Objective: Payment channels are increasingly viewed as a necessary component to any Blockchain ecosystem. Lotion.js does not have an existing payment channel implementation. Financial and tax accounting functionality can and should be added to every Blockchain codebase. Today, we show one simple example by augmenting payment channels with an accounting database.
+
+What is a payment channel? Two parties, seeking to engage in many transactions, contribute funds to be held by the blockchain to be held for the life of the payment channel. The parties proceed to exchange updates regarding the relative balances as they transact. The payment channel closes when one of the parties submits the most recent update to the blockchain, and the blockchain verifies the identity of the submitter and that this is the most recent update, and sends the balances to each party.
+
+Problem: If each micropayment occurred on the Blockchain, instead of using “off-chain code”, the transactions would be traceable and independently recorded. Alice, Bob, and Blockchain know the final outcome of all transactions when the payment channel closes, but this gives the appearance that only one, monodirectional payment occurred. As all payments are ultimately netted, this may understate their separate items of income, gain, deductions and loss. In addition, the timing of payments is unclear. Alice or Bob may experience difficulties when doing financial or tax accounting. Only by working through many state updates can Alice and Bob piece together what happened and when.
+
+Solution? Off-chain code tracks the time and date of each transaction, as well as the amount and direction (positive or negative). This is exported as a CSV file.
