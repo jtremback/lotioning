@@ -9,7 +9,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "coins": "git:github.com/keppel/coins/#judd/wallet-and-docs",
+    "coins": "^2.5.0",
     "lotion": "^0.1.17"
   }
 }

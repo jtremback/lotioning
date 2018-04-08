@@ -1,7 +1,8 @@
 let lotion = require("lotion");
 let coins = require("coins");
+var fs = require("fs");
 
-let app = lotion({ initialState: {} });
+let app = lotion({ initialState: {}, devMode: true });
 
 app.use(
   coins({
@@ -54,6 +55,16 @@ app.use((state, tx) => {
       settlingPeriodLength: tx.settlingPeriodLength
     };
   }
+
+  if (tx.type === "updateState") {
+    state.channels[tx.channelId].sequenceNumber = tx.sequenceNumber;
+    state.channels[tx.channelId].balance0 = tx.balance0;
+    state.channels[tx.channelId].balance1 = tx.balance1;
+    state.channels[tx.channelId].hashlocks = tx.hashlocks;
+  }
 });
 
-app.listen(3000).then(gci => console.log(gci));
+app.listen(3000).then(genesis => {
+  console.log(genesis);
+  fs.writeFile("./genesis.json", JSON.stringify(genesis, null, 2));
+});
