@@ -1,3 +1,4 @@
+// @ts-check
 let lotion = require("lotion");
 let coins = require("coins");
 let fs = require("fs");
@@ -5,10 +6,12 @@ let { createHash } = require("crypto");
 let secp256k1 = require("secp256k1");
 let app = lotion({ initialState: {}, devMode: true });
 
+const settlingPeriodLength = 20;
+
 function hashFunc(algo) {
   return data =>
     createHash(algo)
-      .update(data)
+      .update(JSON.stringify(data))
       .digest();
 }
 
@@ -18,10 +21,9 @@ app.use(
   coins({
     name: "kittycoin",
     initialBalances: {
-      // map addresses to balances
-      "04oDVBPIYP8h5V1eC1PSc/JU6Vo": 108,
-      OGccsuLV2xuoDau1XRc6hc7uO24: 20,
-      "8ph4U3TAzB5cCErrAar5b5RtMe96buDDE": 30
+      "8ph4U3TAzB5cCErrAar5b5RtMe96buDDE": 100,
+      K8XKzxe4kjTn3sNYQijzVUriwTnhbZRt7: 100,
+      "3cfCrd2uyaHj3bpBAT2r6P3vtAafuMdaX": 100
     },
     channels: {}
   })
@@ -41,13 +43,20 @@ function signedByBoth(fingerprint, signature0, signature1, address0, address1) {
 function signedByOne(fingerprint, signature, address0, address1) {
   if (
     !(
-      secp256k1.verify(fingerprint, signature0, address0) ||
-      secp256k1.verify(fingerprint, signature1, address1)
+      secp256k1.verify(fingerprint, signature, address0) ||
+      secp256k1.verify(fingerprint, signature, address1)
     )
   ) {
     throw new Error("not signed");
   }
 }
+
+function signedBy(fingerprint, signature, address) {
+  if (!secp256k1.verify(fingerprint, signature, address)) {
+    throw new Error("not signed");
+  }
+}
+
 function channelDoesNotExist(state, channelId) {
   if (
     state.channels[channelId] !== null &&
@@ -107,7 +116,7 @@ function channelIsNotSettled(state, channelId) {
 }
 
 function balancesEqualTotal(state, channelId, balance0, balance1) {
-  if (balance0.add(_balance1) !== state.channels[channelId].totalBalance) {
+  if (balance0.add(balance1) !== state.channels[channelId].totalBalance) {
     throw new Error("balances dont add up");
   }
 }
@@ -126,91 +135,165 @@ function safeSubtract(a, b) {
 }
 
 app.use((state, tx, chainInfo) => {
+  console.log(tx);
   if (tx.type === "newChannel") {
-    console.log(tx);
+    const {
+      channelId,
+      address0,
+      address1,
+      balance0,
+      balance1,
+      signature0,
+      signature1
+    } = tx;
     channelDoesNotExist(state, channelId);
-    fingerprint = sha256(
+    const fingerprint = sha256([
       "new",
-      tx.channelId,
-      tx.address0,
-      tx.address1,
-      tx.balance0,
-      tx.balance1,
-      tx.settlingPeriodLength
-    );
-    signedByBoth(
-      fingerprint,
-      tx.signature0.tx.signature1,
-      tx.address0,
-      tx.address1
-    );
-    state.accounts[tx.address0].balance = safeSubtract(
-      state.accounts[tx.address0].balance,
-      tx.balance0
-    );
-    state.accounts[tx.address1].balance = safeSubtract(
-      state.accounts[tx.address0].balance,
-      tx.balance1
+      channelId,
+      address0,
+      address1,
+      balance0,
+      balance1
+    ]);
+    signedByBoth(fingerprint, signature0, signature1, address0, address1);
+
+    state.accounts[address0].balance = safeSubtract(
+      state.accounts[address0].balance,
+      balance0
     );
 
-    state.channels[tx.channelId] = {
-      channelId: tx.channelId,
-      address0: tx.address0,
-      address1: tx.address1,
-      totalBalance: tx.balance0 + tx.balance1,
-      balance0: tx.balance0,
-      balance1: tx.balance1,
+    state.accounts[address1].balance = safeSubtract(
+      state.accounts[address0].balance,
+      balance1
+    );
+
+    state.channels[channelId] = {
+      channelId: channelId,
+      address0: address0,
+      address1: address1,
+      totalBalance: balance0 + balance1,
+      balance0: balance0,
+      balance1: balance1,
       hashlocks: [],
       sequence: 0,
-      settlingPeriodLength: tx.settlingPeriodLength
+      settlingPeriodLength
     };
   }
 
+  if (tx.type === "createChannel") {
+    const { channelId, address0, address1, balance0, signature } = tx;
+    channelDoesNotExist(state, channelId);
+
+    const fingerprint = sha256([
+      "create",
+      channelId,
+      address0,
+      address1,
+      balance0
+    ]);
+
+    signedBy(fingerprint, signature, address0);
+
+    state.accounts[address0].balance = safeSubtract(
+      state.accounts[address0].balance,
+      balance0
+    );
+
+    state.channels[channelId] = {
+      channelId: channelId,
+      address0: address0,
+      address1: address1,
+      totalBalance: balance0,
+      balance0: balance0,
+      balance1: 0,
+      hashlocks: [],
+      sequence: 0,
+      settlingPeriodLength: settlingPeriodLength
+    };
+  }
+
+  if (tx.type === "joinChannel") {
+    const { channelId, address, balance, signature } = tx;
+
+    channelExists(state, channelId);
+    channelIsNotSettled(state, channelId);
+    channelIsNotClosed(state, channelId);
+
+    const fingerprint = sha256(["join", channelId, address, balance]);
+
+    signedBy(fingerprint, signature, address);
+
+    state.accounts[address].balance = safeSubtract(
+      state.accounts[address].balance,
+      balance
+    );
+
+    state.channels[channelId].balance1 = balance;
+  }
+
   if (tx.type === "updateState") {
+    const {
+      channelId,
+      sequenceNumber,
+      balance0,
+      balance1,
+      hashlocks,
+      signature0,
+      signature1
+    } = tx;
+
     channelExists(state, tx.channelId);
     channelIsNotSettled(state, tx.channelId);
     channelIsNotClosed(state, tx.channelId);
     sequenceNumberIsHighest(state, tx.channelId, tx.sequenceNumber);
-    fingerprint = sha256(
+
+    const fingerprint = sha256([
       "update",
-      tx.channelId,
-      tx.sequenceNumber,
-      tx.balance0,
-      tx.balance1,
-      tx.hashlocks
-    );
+      channelId,
+      sequenceNumber,
+      balance0,
+      balance1,
+      hashlocks
+    ]);
+
     signedByBoth(
       fingerprint,
-      tx.signature0.tx.signature1,
-      channels[tx.channelId].address0,
-      channels[tx.channelId].address1
+      signature0,
+      signature1,
+      state.channels[channelId].address0,
+      state.channels[channelId].address1
     );
-    state.channels[tx.channelId].sequenceNumber = tx.sequenceNumber;
-    state.channels[tx.channelId].balance0 = tx.balance0;
-    state.channels[tx.channelId].balance1 = tx.balance1;
-    state.channels[tx.channelId].hashlocks = tx.hashlocks;
+
+    state.channels[channelId].sequenceNumber = sequenceNumber;
+    state.channels[channelId].balance0 = balance0;
+    state.channels[channelId].balance1 = balance1;
+    state.channels[channelId].hashlocks = hashlocks;
   }
 
   if (tx.type === "submitPreimage") {
     if (tx.hashed !== sha256(tx.preImage)) {
       throw new Error("hash does not match preimage");
-      state.seenPreimage[tx.hashed] = true;
     }
+    state.seenPreimage[tx.hashed] = true;
   }
 
   if (tx.type === "startSettlingPeriod") {
+    const { channelId, signature } = tx;
     channelExists(state, tx.channelId);
     channelSettlingPeriodNotStarted(state, tx.channelId);
-    fingerprint = sha256("settle", tx.channelId);
+
+    const fingerprint = sha256(["settle", tx.channelId]);
+
     signedByOne(
       fingerprint,
-      tx.signature,
-      channels[tx.channelId].address0,
-      channels[tx.channelId].address1
+      signature,
+      state.channels[channelId].address0,
+      state.channels[channelId].address1
     );
-    state.channels[tx.channelId].settlingPeriodStarted = true;
-    state.channels[tx.channelId].settlingPeriodEnd =
-      chainInfo.height + state.channels[tx.channelId].settlingPeriodLength;
+
+    state.channels[channelId].settlingPeriodStarted = true;
+    state.channels[channelId].settlingPeriodEnd =
+      chainInfo.height + state.channels[channelId].settlingPeriodLength;
   }
 
   if (tx.type === "closeChannel") {
@@ -223,18 +306,21 @@ app.use((state, tx, chainInfo) => {
 
 function closeChannelInternal(state, channelId) {
   state.channels[channelId].closed = true;
-  let adjustment = getHashlockAdjustment(state.channels[channelId].hashlocks);
-  let balances = applyHashlockAdjustment(
-    channelId,
-    state.channels[channelId].balance0,
-    state.channels[channelId].balance1,
-    adjustment
-  ).balance0;
-  incrementBalance(state.channels[channelId].address0, balances.balance0);
-  incrementBalance(state.channels[channelId].address1, balances.balance1);
+  let adjustment = getHashlockAdjustment(
+    state,
+    state.channels[channelId].hashlocks
+  );
+
+  let adjustedBalances = applyHashlockAdjustment(channelId, adjustment);
+
+  state.accounts[state.channels[channelId].address0].balance +=
+    adjustedBalances.balance0;
+
+  state.accounts[state.channels[channelId].address1].balance +=
+    adjustedBalances.balance1;
 }
 
-function getHashlockAdjustment(hashlocks) {
+function getHashlockAdjustment(state, hashlocks) {
   return hashlocks.reduce((acc, { hash, adjustment }) => {
     if (state.seenPreimage[hash]) {
       acc = acc + adjustment;
@@ -252,5 +338,7 @@ function applyHashlockAdjustment(state, channelId, adjustment) {
 
 app.listen(3000).then(genesis => {
   console.log(genesis);
-  fs.writeFile("./genesis.json", JSON.stringify(genesis, null, 2));
+  fs.writeFile("./genesis.json", JSON.stringify(genesis, null, 2), () =>
+    console.log("wrote genesis.json")
+  );
 });

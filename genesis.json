@@ -1,10 +1,10 @@
 {
-  "tendermintPort": 56607,
-  "abciPort": 56608,
+  "tendermintPort": 54663,
+  "abciPort": 54664,
   "txServerPort": 3000,
-  "GCI": "8ccd39647fce2315a066543d38557866dfd828106f71d95d20e2df222e1bcbc2",
-  "p2pPort": 56606,
-  "lotionPath": "/Users/jehan/.lotion/networks/3c3bc5cf4983e90e4f0cd87934338da2ee4c619952ec4eb01d09ee869ffbed55456665864",
-  "genesisPath": "/Users/jehan/.lotion/networks/3c3bc5cf4983e90e4f0cd87934338da2ee4c619952ec4eb01d09ee869ffbed55456665864/genesis.json",
+  "GCI": "54cdaa0d1ba02ecc0f2e2b9081370773524310ea3f4d53181a339b73e2f3f561",
+  "p2pPort": 54662,
+  "lotionPath": "/Users/jehan/.lotion/networks/0510dc6cb8b89fc44378e4f4cbe4fed0a40e6d223c5207fc07647830c7d723e7955205339",
+  "genesisPath": "/Users/jehan/.lotion/networks/0510dc6cb8b89fc44378e4f4cbe4fed0a40e6d223c5207fc07647830c7d723e7955205339/genesis.json",
   "lite": false
 }
