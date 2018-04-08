@@ -1,8 +1,18 @@
 let lotion = require("lotion");
 let coins = require("coins");
-var fs = require("fs");
+let fs = require("fs");
+let { createHash } = require("crypto");
 
 let app = lotion({ initialState: {}, devMode: true });
+
+function hashFunc(algo) {
+  return data =>
+    createHash(algo)
+      .update(data)
+      .digest();
+}
+
+let sha256 = hashFunc("sha256");
 
 app.use(
   coins({
@@ -35,13 +45,17 @@ function safeSubtract(a, b) {
   }
 }
 
-app.use((state, tx) => {
+app.use((state, tx, chainInfo) => {
   if (tx.type === "newChannel") {
     console.log(tx);
-    state.accounts[tx.address0].balance =
-      state.accounts[tx.address0].balance - tx.balance0;
-    state.accounts[tx.address1].balance =
-      state.accounts[tx.address0].balance - tx.balance1;
+    state.accounts[tx.address0].balance = safeSubtract(
+      state.accounts[tx.address0].balance,
+      tx.balance0
+    );
+    state.accounts[tx.address1].balance = safeSubtract(
+      state.accounts[tx.address0].balance,
+      tx.balance1
+    );
 
     state.channels[tx.channelId] = {
       channelId: tx.channelId,
@@ -62,7 +76,45 @@ app.use((state, tx) => {
     state.channels[tx.channelId].balance1 = tx.balance1;
     state.channels[tx.channelId].hashlocks = tx.hashlocks;
   }
+
+  if (tx.type === "submitPreimage") {
+    if (tx.hashed !== sha256(tx.preImage)) {
+      throw new Error("hash does not match preimage");
+      state.seenPreimage[tx.hashed] = true;
+    }
+  }
+
+  if (tx.type === "startSettlingPeriod") {
+    state.channels[tx.channelId].settlingPeriodStarted = true;
+    state.channels[tx.channelId].settlingPeriodEnd =
+      chainInfo.height + state.channels[tx.channelId].settlingPeriodLength;
+  }
+
+  if (tx.type === "closeChannel") {
+    closeChannelInternal(tx.channelId);
+  }
 });
+
+function closeChannelInternal(state, channelId) {
+  state.channels[channelId].closed = true;
+}
+
+function getHashlockAdjustment(hashlocks) {
+  return hashlocks.reduce((acc, { hash, adjustment }) => {
+    if (state.seenPreimage[hash]) {
+      acc = acc + adjustment;
+    }
+
+    return acc;
+  }, 0);
+}
+
+function applyHashlockAdjustment(state, channelId, adjustment) {
+  return {
+    balance0: (state.channels[channelId].balance0 += adjustment),
+    balance1: (state.channels[channelId].balance0 -= adjustment)
+  };
+}
 
 app.listen(3000).then(genesis => {
   console.log(genesis);
